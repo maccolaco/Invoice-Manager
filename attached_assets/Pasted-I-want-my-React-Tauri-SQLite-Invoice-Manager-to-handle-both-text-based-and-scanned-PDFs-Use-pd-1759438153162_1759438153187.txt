@@ -1,0 +1,204 @@
+I want my React + Tauri + SQLite Invoice Manager to handle both text-based and scanned PDFs.
+
+Use pdf-extract for text-based PDFs.
+
+If no text is found, convert pages to images with pdfium-render (or poppler-utils’s pdftoppm if available) and run Tesseract OCR using the tesseract crate.
+
+Extract text, then run regex parsing for invoice fields.
+
+Save results to SQLite.
+
+Return JSON invoice to React.
+
+🔹 Dependencies
+
+In Cargo.toml:
+
+[dependencies]
+tauri = { version = "1", features = ["api-all"] }
+serde = { version = "1.0", features = ["derive"] }
+rusqlite = "0.29"
+pdf-extract = "0.4"
+regex = "1"
+tesseract = "0.14"
+tempfile = "3"
+
+🔹 Updated Backend Code
+
+src-tauri/src/main.rs
+
+#![cfg_attr(
+    all(not(debug_assertions), target_os = "windows"),
+    windows_subsystem = "windows"
+)]
+
+use tauri::command;
+use serde::Serialize;
+use rusqlite::{params, Connection};
+use regex::Regex;
+use std::fs;
+use pdf_extract;
+use tesseract::Tesseract;
+use tempfile::tempdir;
+use std::process::Command;
+
+#[derive(Serialize)]
+struct Invoice {
+    id: i32,
+    invoice_number: String,
+    vendor_customer: String,
+    issue_date: String,
+    due_date: String,
+    subtotal: f64,
+    tax: f64,
+    total: f64,
+    currency: String,
+    notes: String,
+}
+
+#[command]
+fn parse_pdf(file_path: String) -> Result<Invoice, String> {
+    // Try normal PDF extraction
+    let raw_text = extract_text_from_pdf(&file_path).unwrap_or_else(|_| "".to_string());
+
+    // If no text found, fallback to OCR
+    let text = if raw_text.trim().is_empty() {
+        println!("No text found, falling back to OCR...");
+        ocr_pdf(&file_path).map_err(|e| e.to_string())?
+    } else {
+        raw_text
+    };
+
+    // Parse fields with regex
+    let invoice_number = Regex::new(r"(?i)invoice\s*#?:?\s*(\S+)")
+        .unwrap()
+        .captures(&text)
+        .and_then(|c| c.get(1))
+        .map(|m| m.as_str().to_string())
+        .unwrap_or("UNKNOWN".to_string());
+
+    let issue_date = Regex::new(r"(?i)date\s*[:\-]?\s*(\d{4}[-/]\d{2}[-/]\d{2})")
+        .unwrap()
+        .captures(&text)
+        .and_then(|c| c.get(1))
+        .map(|m| m.as_str().to_string())
+        .unwrap_or("UNKNOWN".to_string());
+
+    let due_date = Regex::new(r"(?i)due\s*date\s*[:\-]?\s*(\d{4}[-/]\d{2}[-/]\d{2})")
+        .unwrap()
+        .captures(&text)
+        .and_then(|c| c.get(1))
+        .map(|m| m.as_str().to_string())
+        .unwrap_or("UNKNOWN".to_string());
+
+    let total = Regex::new(r"(?i)total\s*[:\-]?\s*\$?([\d,]+\.\d{2})")
+        .unwrap()
+        .captures(&text)
+        .and_then(|c| c.get(1))
+        .map(|m| m.as_str().replace(",", "").parse::<f64>().unwrap_or(0.0))
+        .unwrap_or(0.0);
+
+    let currency = if text.contains("USD") {
+        "USD".to_string()
+    } else if text.contains("INR") {
+        "INR".to_string()
+    } else if text.contains("EUR") {
+        "EUR".to_string()
+    } else {
+        "UNKNOWN".to_string()
+    };
+
+    let invoice = Invoice {
+        id: 0,
+        invoice_number,
+        vendor_customer: "Vendor Unknown".to_string(),
+        issue_date,
+        due_date,
+        subtotal: (total * 0.9).round(),
+        tax: (total * 0.1).round(),
+        total,
+        currency,
+        notes: text.chars().take(200).collect(),
+    };
+
+    save_invoice(&invoice, &file_path).map_err(|e| e.to_string())?;
+    Ok(invoice)
+}
+
+// --- PDF Text Extraction ---
+fn extract_text_from_pdf(path: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let bytes = fs::read(path)?;
+    let text = pdf_extract::extract_text_from_mem(&bytes)?;
+    Ok(text)
+}
+
+// --- OCR Fallback ---
+fn ocr_pdf(path: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    let out_base = dir.path().join("page");
+
+    // Convert PDF to images (requires `pdftoppm` installed in system)
+    Command::new("pdftoppm")
+        .args(&["-png", path, out_base.to_str().unwrap()])
+        .output()?;
+
+    let mut full_text = String::new();
+    for entry in fs::read_dir(dir.path())? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) == Some("png") {
+            let text = Tesseract::new(None, Some("eng"))?
+                .set_image(path.to_str().unwrap())?
+                .get_text()?;
+            full_text.push_str(&text);
+        }
+    }
+
+    Ok(full_text)
+}
+
+// --- Save Invoice to SQLite ---
+fn save_invoice(invoice: &Invoice, file_path: &str) -> Result<(), rusqlite::Error> {
+    let conn = Connection::open("invoices.db")?;
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS invoices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            invoice_number TEXT,
+            vendor_customer TEXT,
+            issue_date TEXT,
+            due_date TEXT,
+            subtotal REAL,
+            tax REAL,
+            total REAL,
+            currency TEXT,
+            notes TEXT,
+            file_path TEXT
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "INSERT INTO invoices (invoice_number, vendor_customer, issue_date, due_date, subtotal, tax, total, currency, notes, file_path)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![
+            invoice.invoice_number,
+            invoice.vendor_customer,
+            invoice.issue_date,
+            invoice.due_date,
+            invoice.subtotal,
+            invoice.tax,
+            invoice.total,
+            invoice.currency,
+            invoice.notes,
+            file_path
+        ],
+    )?;
+    Ok(())
+}
+
+fn main() {
+    tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![parse_pdf])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri app");
+}
