@@ -8,6 +8,35 @@ A desktop-native invoice management application built with React, Express, and T
 
 Preferred communication style: Simple, everyday language.
 
+## Replit Environment Setup (October 2025)
+
+**Environment Configuration**
+- Node.js 20 installed via Replit modules
+- PostgreSQL database provisioned with DATABASE_URL set
+- Development server runs on port 5000 (both API and frontend)
+- Vite configured with `allowedHosts: true` for Replit proxy support
+- Server binds to 0.0.0.0:5000 with port reuse enabled
+
+**Deployment Configuration**
+- Deployment target: autoscale (stateless web application)
+- Build command: `cd InvoiceGenie && npm run build`
+- Run command: `cd InvoiceGenie && npm start`
+- Production server uses Node.js with bundled server code in dist/
+
+**Database Setup**
+- Drizzle ORM with PostgreSQL dialect
+- Database migrations managed via `npm run db:push`
+- Tables: users, invoices, line_items, reminders
+- All migrations applied successfully
+
+**File Structure**
+- Project root: `/InvoiceGenie/`
+- Client source: `client/src/`
+- Server source: `server/`
+- Shared types: `shared/`
+- Build output: `dist/` (excluded from git)
+- File uploads: `uploads/` (excluded from git)
+
 ## System Architecture
 
 ### Frontend Architecture

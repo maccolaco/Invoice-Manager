@@ -36,3 +36,8 @@ externalPort = 80
 [[ports]]
 localPort = 38593
 externalPort = 3000
+
+[deployment]
+deploymentTarget = "autoscale"
+run = ["bash", "-c", "cd InvoiceGenie && npm start"]
+build = ["bash", "-c", "cd InvoiceGenie && npm run build"]
