@@ -1,0 +1,143 @@
+Build a desktop-native Invoice Management Application using React + Tauri. The app must run on Windows, Mac, and Linux and allow users to upload PDF invoices, extract data (both text and scanned), organize invoices in tables, track payables/receivables, schedule reminders, and display a calendar and dashboard. Prioritize offline support, simplicity, and clean UI.
+
+Core Features (MVP):
+
+User Authentication
+
+Local users with secure password storage.
+
+No external auth dependency (works offline).
+
+PDF Upload & Extraction
+
+Upload invoices in PDF format.
+
+If text-based → extract fields directly with pdf.js or pdfplumber.
+
+If scanned → convert PDF to images and run OCR using Tesseract.
+
+Extract fields: invoice_number, vendor_customer, issue_date, due_date, subtotal, tax, total, currency, status, line_items, and notes.
+
+Output structured JSON.
+
+Invoice Table
+
+Show all invoices in a sortable, searchable table.
+
+Filter by type (payable/receivable), status (draft, unpaid, paid, overdue), and date.
+
+Invoice Detail View
+
+Display extracted fields and original PDF preview.
+
+Allow user edits of extracted data.
+
+Show line items in a table format.
+
+Status Tracking
+
+Auto-set status (paid, unpaid, overdue) from due_date.
+
+Allow manual overrides.
+
+Reminders
+
+Local desktop notifications for upcoming/overdue invoices.
+
+Configurable: default at 7 days before, 1 day before, due date, and 3 days overdue.
+
+Calendar View
+
+Month/week view of invoices and reminders using FullCalendar.
+
+Clickable events to open invoice details.
+
+Dashboard
+
+KPI cards: Total Receivables, Total Payables, Overdue Invoices, Net Cash Flow.
+
+Charts: Monthly invoice trend.
+
+Data Export
+
+Export invoices table to CSV.
+
+Settings
+
+Configure reminders, currency, and notification preferences.
+
+Architecture & Stack
+
+Frontend: React (with TailwindCSS for styling).
+
+Desktop wrapper: Tauri (Rust backend).
+
+Database: SQLite (local storage for invoices, line items, reminders).
+
+PDF Handling: pdf.js (JS), pdfplumber (Python) or equivalent Rust crate.
+
+OCR: Tesseract (via Rust binding or subprocess).
+
+Scheduler: Rust cron-style background task runner.
+
+Notifications: Tauri native notifications.
+
+Data Models
+
+User: id, email, password_hash, created_at.
+
+Invoice: id, user_id, invoice_number, type, vendor_customer, issue_date, due_date, subtotal, tax, total, currency, status, extracted_json, file_path, created_at, updated_at.
+
+LineItem: id, invoice_id, description, qty, unit_price, amount.
+
+Reminder: id, invoice_id, remind_at, method (notification/email), sent.
+
+Workflow
+
+User uploads PDF.
+
+Backend checks if PDF is text or scanned.
+
+Extracts text or runs OCR.
+
+Parse fields via regex + keyword matching.
+
+Save JSON + PDF path into SQLite.
+
+Display in invoice table.
+
+Trigger reminders based on due dates.
+
+Allow user to view in calendar or dashboard.
+
+Acceptance Criteria
+
+Runs on Windows, Mac, Linux.
+
+Can upload and parse both text PDFs and scanned PDFs.
+
+Calendar and dashboard display accurate info.
+
+Reminders trigger as scheduled.
+
+CSV export works offline.
+
+Testing
+
+Unit tests for extraction logic.
+
+End-to-end test: upload → extract → store → reminder triggers.
+
+Accuracy target: ≥80% field extraction on sample PDFs.
+
+Deliverables
+
+Full React + Tauri codebase.
+
+SQLite schema.
+
+Sample PDFs for testing.
+
+Installer for Windows, Mac, Linux.
+
+Setup and deployment instructions.
