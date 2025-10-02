@@ -6,6 +6,7 @@ import bcrypt from "bcrypt";
 import multer from "multer";
 import path from "path";
 import fs from "fs/promises";
+import { parsePDF } from "./pdfParser";
 
 const upload = multer({ 
   dest: "uploads/",
@@ -179,22 +180,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // PDF upload route (placeholder - will implement full processing in next task)
-  app.post("/api/invoices/upload", requireAuth, upload.single("pdf"), async (req, res) => {
+  // PDF upload and parsing route
+  app.post("/api/invoices/parse-pdf", requireAuth, upload.single("pdf"), async (req, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: "No file uploaded" });
       }
 
-      // Placeholder response - will implement PDF processing in next task
+      const extractedData = await parsePDF(req.file.path);
+      
       res.json({ 
-        success: true, 
-        message: "PDF upload received, processing will be implemented",
+        success: true,
+        data: extractedData,
         filePath: req.file.path 
       });
     } catch (error) {
-      console.error("Upload error:", error);
-      res.status(500).json({ error: "Failed to upload file" });
+      console.error("PDF parsing error:", error);
+      res.status(500).json({ error: "Failed to parse PDF" });
     }
   });
 

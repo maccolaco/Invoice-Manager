@@ -18,8 +18,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Search, Upload, Filter, ArrowUpDown } from "lucide-react";
+import { Search, Upload, Filter, ArrowUpDown, Loader2 } from "lucide-react";
 import { useLocation } from "wouter";
+import { parsePDFInvoice, createInvoice } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast";
 
 export default function Invoices() {
   const [location, setLocation] = useLocation();
@@ -29,6 +31,9 @@ export default function Invoices() {
   const [uploadDialogOpen, setUploadDialogOpen] = useState(
     location.includes("action=upload")
   );
+  const [isParsing, setIsParsing] = useState(false);
+  const [parsedData, setParsedData] = useState<any>(null);
+  const { toast } = useToast();
 
   const invoices = [
     {
@@ -226,14 +231,124 @@ export default function Invoices() {
               Upload a PDF invoice to extract and store invoice data automatically
             </DialogDescription>
           </DialogHeader>
-          <PDFUploadZone
-            onFileSelect={(file) => {
-              console.log("Processing invoice:", file.name);
-              setTimeout(() => {
-                setUploadDialogOpen(false);
-              }, 1500);
-            }}
-          />
+          {isParsing ? (
+            <div className="flex flex-col items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
+              <p className="text-sm text-muted-foreground">Extracting invoice data from PDF...</p>
+            </div>
+          ) : parsedData ? (
+            <div className="space-y-4">
+              <div className="bg-muted/50 rounded-lg p-4 space-y-3">
+                <h3 className="font-medium text-sm">Extracted Data</h3>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="text-muted-foreground">Invoice #:</p>
+                    <p className="font-medium">{parsedData.invoiceNumber}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Vendor/Customer:</p>
+                    <p className="font-medium">{parsedData.vendorCustomer}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Issue Date:</p>
+                    <p className="font-medium">{parsedData.issueDate || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Due Date:</p>
+                    <p className="font-medium">{parsedData.dueDate || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Subtotal:</p>
+                    <p className="font-medium">${parsedData.subtotal}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Tax:</p>
+                    <p className="font-medium">${parsedData.tax}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Total:</p>
+                    <p className="font-medium text-lg">${parsedData.total}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Currency:</p>
+                    <p className="font-medium">{parsedData.currency}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="flex gap-2 justify-end">
+                <Button variant="outline" onClick={() => { setParsedData(null); }}>
+                  Cancel
+                </Button>
+                <Button onClick={async () => {
+                  try {
+                    const invoice = await createInvoice({
+                      invoiceNumber: parsedData.invoiceNumber,
+                      type: 'payable',
+                      vendorCustomer: parsedData.vendorCustomer,
+                      issueDate: parsedData.issueDate || new Date().toISOString().split('T')[0],
+                      dueDate: parsedData.dueDate || new Date().toISOString().split('T')[0],
+                      subtotal: parsedData.subtotal,
+                      tax: parsedData.tax,
+                      total: parsedData.total,
+                      currency: parsedData.currency,
+                      status: 'unpaid',
+                      notes: parsedData.notes,
+                      extractedJson: parsedData
+                    });
+                    
+                    if (parsedData.lineItems && parsedData.lineItems.length > 0) {
+                      for (const item of parsedData.lineItems) {
+                        await fetch(`/api/invoices/${invoice.id}/line-items`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify(item),
+                          credentials: 'include',
+                        });
+                      }
+                    }
+                    
+                    toast({
+                      title: "Success",
+                      description: `Invoice created with ${parsedData.lineItems?.length || 0} line items`,
+                    });
+                    setParsedData(null);
+                    setUploadDialogOpen(false);
+                  } catch (error: any) {
+                    toast({
+                      title: "Error",
+                      description: error.message,
+                      variant: "destructive",
+                    });
+                  }
+                }}>
+                  Create Invoice
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <PDFUploadZone
+              onFileSelect={async (file) => {
+                setIsParsing(true);
+                try {
+                  const result = await parsePDFInvoice(file);
+                  setParsedData(result.data);
+                  toast({
+                    title: "PDF Parsed",
+                    description: "Invoice data extracted successfully",
+                  });
+                } catch (error: any) {
+                  toast({
+                    title: "Error",
+                    description: error.message || "Failed to parse PDF",
+                    variant: "destructive",
+                  });
+                  setUploadDialogOpen(false);
+                } finally {
+                  setIsParsing(false);
+                }
+              }}
+            />
+          )}
         </DialogContent>
       </Dialog>
     </div>
